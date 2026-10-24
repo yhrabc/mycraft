@@ -2,28 +2,28 @@
 #include<windows.h>
 #include<iostream>
 #include<conio.h>
-#include<vector>
-#include<string>
-#include<map>
 #include<fstream>
 #include<sstream>
+#include<vector>
+#include<string>
 #include<chrono>
 #include<random>
+#include<map>
+#include<set>
 #define kd(K) (GetAsyncKeyState(K)&0x8000)
 using namespace std;
 using namespace std::chrono;
 const int scw=200,sch=100,block_type_count=10;
-int mobcnt=10;
+int mobcnt=20;
 string die,name;
-int block[block_type_count+1],world,x,y,jump_height,score,hp=100,total_fps,boss_idx,hit,target_fps=10;
+int block[block_type_count+1],x,y,jump_height,score,hp=100,total_fps,boss_idx=-1,hit,target_fps=10,fps;
 int raw_dt[scw][sch][2],view[20][40],reward_count,can_summon_boss,plr_to_nw,end_score,win,last_hp,color[5000],slot;
-int place_x=10,place_y=20,mode,attack_power=20,defense_power=100,defense_shop_buy_count,attack_shop_buy_count,bullet_count=0;
-bool is_jump,is_fighting,facing,squat;
-int fps;
+int place_x=20,place_y=10,mode,attack_power=20,defense_power=100,defense_shop_buy_count,attack_shop_buy_count,bullet_count=0;
+bool is_jump,is_fighting,facing,squat,world;
 string seed;
 long long hashed_seed;
 //------------------------所有贴图和颜色----------------------------------
-int block_color[block_type_count][2]={{7,7},{4,8},{6,6},{1,1},{1,12},{2,2},{14,14},{5,5},{0,3},{9,9}};
+int block_color[block_type_count][2]={{7,7},{4,8},{6,6},{1,1},{1,12},{2,2},{14,14},{5,5},{3,3},{9,9}};
 int mob_color[2]={2,7};
 int bullet_color=6;
 int reward_color[2]={7,8};
@@ -31,6 +31,7 @@ string mob_name_str="ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 string block_texture=" =*#+x$0*$";
 char bullet_texture='-';
 char reward_texture='*';
+char boss_name='+';
 //-----------------------------------------------------------------------
 map<string,int> zh_to_color={
     {"深蓝",1},
@@ -91,14 +92,15 @@ map<string,char> key_pos={
 struct mob{
     int x,y,hp,hit,last_hp,target_x,target_y,max_hp;
     char name;
-    bool can_shoot;
+    bool can_shoot,world;
 };
 struct bullet{
     int x,y,facing;
     string name;
+    bool world;
 };
 struct reward{
-    bool world,is_double;
+    bool world,has_more;
     int score,x,y;
 };
 vector<mob>mobs(mobcnt);
@@ -129,15 +131,11 @@ size_t hash_str(string a) {
     }
     return hash;
 }
-void save(string aaa){
+bool save(string aaa){
     aaa+=".mycraftsave";
     ofstream fout(aaa);
-    if(!fout){
-        cout<<"存档失败！\n";
-        sleep_ms(1000);
-        return;
-    }
-    fout<<bullet_texture<<' '<<bullet_color<<' '<<reward_texture<<' '<<mode<<' '<<win<<' '<<x<<' '<<world<<' '<<y<<' '<<jump_height<<' '<<score<<' '<<squat<<' '<<hp<<' '<<total_fps<<' '<<hit<<' '<<reward_count<<' '<<can_summon_boss<<' '<<plr_to_nw<<' '<<is_jump<<' '<<is_fighting<<' '<<facing<<' '<<end_score<<' '<<slot<<' '<<place_x<<' '<<place_y<<' '<<boss_idx<<' '<<bullet_count<<'\n';
+    if(!fout)return 1;
+    fout<<bullet_texture<<' '<<bullet_color<<' '<<reward_texture<<' '<<mode<<' '<<win<<' '<<x<<' '<<world<<' '<<y<<' '<<jump_height<<' '<<score<<' '<<squat<<' '<<hp<<' '<<total_fps<<' '<<hit<<' '<<reward_count<<' '<<can_summon_boss<<' '<<plr_to_nw<<' '<<is_jump<<' '<<is_fighting<<' '<<facing<<' '<<end_score<<' '<<slot<<' '<<place_y<<' '<<place_x<<' '<<boss_idx<<' '<<bullet_count<<' '<<last_hp<<' '<<boss_name<<'\n';
     fout<<die<<'\n';
     fout<<seed<<'\n';
     fout<<block_texture<<'\n';
@@ -161,11 +159,11 @@ void save(string aaa){
         fout<<'\n';
     }
     fout<<mobs.size()<<'\n';
-    for(int i=0;i<mobs.size();i++)fout<<mobs[i].x<<' '<<mobs[i].y<<' '<<mobs[i].hp<<' '<<mobs[i].name<<' '<<mobs[i].can_shoot<<' '<<mobs[i].target_x<<' '<<mobs[i].target_y<<' '<<mobs[i].last_hp<<' '<<mobs[i].hit<<' '<<mobs[i].max_hp<<'\n';
+    for(int i=0;i<mobs.size();i++)fout<<mobs[i].x<<' '<<mobs[i].y<<' '<<mobs[i].hp<<' '<<mobs[i].name<<' '<<mobs[i].can_shoot<<' '<<mobs[i].target_x<<' '<<mobs[i].target_y<<' '<<mobs[i].last_hp<<' '<<mobs[i].hit<<' '<<mobs[i].max_hp<<' '<<mobs[i].world<<'\n';
     fout<<rewards.size()<<'\n';
-    for(auto& c:rewards)fout<<c.score<<' '<<c.x<<' '<<c.y<<' '<<c.world<<' '<<c.is_double<<'\n';
+    for(auto& i:rewards)fout<<i.score<<' '<<i.x<<' '<<i.y<<' '<<i.world<<' '<<i.has_more<<'\n';
     fout<<bullets.size()<<'\n';
-    for(int i=0;i<bullets.size();i++)fout<<bullets[i].x<<' '<<bullets[i].y<<' '<<bullets[i].facing<<' '<<bullets[i].name<<'\n';
+    for(int i=0;i<bullets.size();i++)fout<<bullets[i].x<<' '<<bullets[i].y<<' '<<bullets[i].facing<<' '<<bullets[i].name<<' '<<bullets[i].world<<'\n';
     fout<<gr.size()<<'\n';
     for(auto i:gr)fout<<i.first<<' '<<i.second<<'\n';
     fout<<key_pos.size()<<'\n';
@@ -175,21 +173,17 @@ void save(string aaa){
     fout<<defense_power<<'\n';
     fout<<defense_shop_buy_count<<'\n';
     fout.close();
+    return 0;
 }
-struct auto_save{
-    ~auto_save(){
-        if(total_fps>0)save(name);
-    }
-}auto_save_example;
+int __stdcall auto_close(DWORD type){
+    if(type==CTRL_CLOSE_EVENT)if(!name.empty())save(name);
+    return 1;
+}
 bool load(string aaa){
     aaa+=".mycraftsave";
     ifstream fin(aaa);
-    if(!fin){
-        cout<<"读档失败！存档文件不存在。\n";
-        sleep_ms(1000);
-        return 1;
-    }
-    fin>>bullet_texture>>bullet_color>>reward_texture>>mode>>win>>x>>world>>y>>jump_height>>score>>squat>>hp>>total_fps>>hit>>reward_count>>can_summon_boss>>plr_to_nw>>is_jump>>is_fighting>>facing>>end_score>>slot>>place_x>>place_y>>boss_idx>>bullet_count;
+    if(!fin)return 1;
+    fin>>bullet_texture>>bullet_color>>reward_texture>>mode>>win>>x>>world>>y>>jump_height>>score>>squat>>hp>>total_fps>>hit>>reward_count>>can_summon_boss>>plr_to_nw>>is_jump>>is_fighting>>facing>>end_score>>slot>>place_y>>place_x>>boss_idx>>bullet_count>>last_hp>>boss_name;
     getline(fin,die);
     getline(fin,die);
     getline(fin,seed);
@@ -205,13 +199,13 @@ bool load(string aaa){
     int size;
     fin>>size;
     mobs.resize(size);
-    for(int i=0;i<mobs.size();i++)fin>>mobs[i].x>>mobs[i].y>>mobs[i].hp>>mobs[i].name>>mobs[i].can_shoot>>mobs[i].target_x>>mobs[i].target_y>>mobs[i].last_hp>>mobs[i].hit>>mobs[i].max_hp;
+    for(int i=0;i<mobs.size();i++)fin>>mobs[i].x>>mobs[i].y>>mobs[i].hp>>mobs[i].name>>mobs[i].can_shoot>>mobs[i].target_x>>mobs[i].target_y>>mobs[i].last_hp>>mobs[i].hit>>mobs[i].max_hp>>mobs[i].world;
     fin>>size;
     rewards.resize(size);
-    for(auto&c:rewards)fin>>c.score>>c.x>>c.y>>c.world>>c.is_double;
+    for(auto&c:rewards)fin>>c.score>>c.x>>c.y>>c.world>>c.has_more;
     fin>>size;
     bullets.resize(size);
-    for(int i=0;i<bullets.size();i++)fin>>bullets[i].x>>bullets[i].y>>bullets[i].facing>>bullets[i].name;
+    for(int i=0;i<bullets.size();i++)fin>>bullets[i].x>>bullets[i].y>>bullets[i].facing>>bullets[i].name>>bullets[i].world;
     gr.clear();
     fin>>size;
     for(int i=0;i<size;i++){
@@ -253,7 +247,7 @@ string pad_line(string in){
             i+=3;
         }
     }
-    return string(40-len,' ')+"\n";
+    return string(max(0,40-len),' ')+"\n";
 }
 void enable_ansi(){
     HANDLE hConsole=GetStdHandle(STD_OUTPUT_HANDLE);
@@ -382,19 +376,21 @@ void randd(){
     }
     x=rand()%scw;
     y=rand()%sch;
-    while(dt(x,y,world)==1||dt(x,y,world)==5||dt(x,y+1,world)!=1){
+    while(dt(x,y,world)!=0||dt(x,y+1,world)!=1){
         x=rand()%scw;
         y=rand()%sch;
     }
     for(int i=0;i<mobs.size();i++)mobs[i].x=rand()%scw,mobs[i].target_x=mobs[i].x;
     for(int i=0;i<mobs.size();i++)mobs[i].y=rand()%sch,mobs[i].target_y=mobs[i].y;
     for(int i=0;i<mobs.size();i++)mobs[i].max_hp=100;
+    for(int i=0;i<mobs.size()/2;i++)mobs[i].world=0;
+    for(int i=mobs.size()/2;i<mobs.size();i++)mobs[i].world=1;
     reward_count=rand()%5+15;
     rewards.resize(reward_count);
     for(auto &i:rewards)i.world=1;
     reward_count+=rand()%5+15;
     rewards.resize(reward_count);
-    for(auto &i:rewards)i.is_double=!(rand()%10);
+    for(auto &i:rewards)i.has_more=!(rand()%10);
     for(int i=0;i<mobs.size();i++)mobs[i].hp=100,mobs[i].name=mob_name_str[rand()%mob_name_str.size()],mobs[i].can_shoot=!(rand()%5);
     for(int i=0;i<reward_count;i++){
         rewards[i].score=rand()%100+50;
@@ -420,16 +416,13 @@ void check_coin(){
     if(dt(x,y,world)==2){
         dt(x,y,world)=0;
         score++;
-        hp+=10;
+        hp+=5;
         int xx=(rand()%(scw-2))+1,yy=(rand()%(sch-2))+1;
         if(hasone()){
             while(dt(xx,yy,world)!=0||dt(xx,yy+1,world)!=1){
                 xx=(rand()%(scw-2))+1;
                 yy=(rand()%(sch-2))+1;
             }
-        }else{
-            xx=x;
-            yy=y;
         }
         dt(xx,yy,world)=2;
     }
@@ -437,16 +430,13 @@ void check_coin(){
         dt(x,y,world)=0;
         end_score++;
         score+=250;
-        hp+=10;
+        hp+=5;
         int xx=(rand()%(scw-2))+1,yy=(rand()%(sch-2))+1;
         if(hasone()){
             while(dt(xx,yy,world)!=0||dt(xx,yy+1,world)!=1){
                 xx=(rand()%(scw-2))+1;
                 yy=(rand()%(sch-2))+1;
             }
-        }else{
-            xx=x;
-            yy=y;
         }
         dt(xx,yy,world)=8;
     }
@@ -454,7 +444,7 @@ void check_coin(){
         if(rewards[i].x==x&&rewards[i].y==y&&world==rewards[i].world){
             rewards[i].x=-30;
             rewards[i].y=-30;
-            score+=rewards[i].score*(rewards[i].is_double*4+1);
+            score+=rewards[i].score*(rewards[i].has_more*4+1);
             rewards[i].score=rand()%100+50;
             int xx=(rand()%(scw-2))+1,yy=(rand()%(sch-2))+1;
             if(hasone()){
@@ -462,12 +452,10 @@ void check_coin(){
                     xx=(rand()%(scw-2))+1;
                     yy=(rand()%(sch-2))+1;
                 }
-            }else{
-                xx=x;
-                yy=y;
             }
             rewards[i].x=xx;
             rewards[i].y=yy;
+            dt(xx,yy,world)=2;
             break;
         }
     }
@@ -483,7 +471,6 @@ void print(){
     string out;
     ostringstream final_out;
     int pos=0;
-    if(gr["cm"])hit=0,hp=100;
     int xx=x-20,yy=y-10;
     for(int i=0;i<20;i++){
         for(int j=0;j<40;j++){
@@ -496,7 +483,7 @@ void print(){
             bool find_mob=0;
             mob temp_mob;
             for(int k=0;k<mobs.size();k++){
-                if(j==mobs[k].x-xx&&i==mobs[k].y-yy&&mobs[k].hp>0){
+                if(j==mobs[k].x-xx&&i==mobs[k].y-yy&&mobs[k].hp>0&&mobs[k].world==world){
                     find_mob=1;
                     temp_mob=mobs[k];
                     break;
@@ -513,7 +500,7 @@ void print(){
             }
             bool find_bullet=0;
             for(int k=0;k<bullets.size();k++){
-                if(j==bullets[k].x-xx&&i==bullets[k].y-yy){
+                if(j==bullets[k].x-xx&&i==bullets[k].y-yy&&bullets[k].world==world){
                     find_bullet=1;
                     break;
                 }
@@ -535,7 +522,7 @@ void print(){
                 color[pos++]=bullet_color;
             }else if(find_reward){
                 out+=reward_texture;
-                if(temp_reward.is_double){
+                if(temp_reward.has_more){
                     color[pos++]=reward_color[rand()%2];
                 }else{
                     color[pos++]=reward_color[0];
@@ -550,7 +537,7 @@ void print(){
     }
     out+=add_color("金币:"+to_string(score),2,pos);
     out+=add_color("最终金币:"+to_string(end_score),2,pos);
-    out+=add_color("血量:"+string(hp/10,'=')+string(10-(hp/10),'-'),4,pos);
+    out+=add_color("血量:"+string(min(10,max(hp/10,0)),'=')+string(10-(min(10,max(hp/10,0))),'-'),4,pos);
     out+=add_color("帧率:"+to_string(fps),4,pos);
     out+=add_color("物资["+to_string(slot)+"]:("+block_name[{world,slot}]+')'+to_string(block[slot]),4,pos);
     out+=add_color("子弹量:"+to_string(bullet_count),4,pos);
@@ -558,7 +545,7 @@ void print(){
     out.pop_back(); 
     string last_color="";
     for(int i=0;i<820;i++){
-        string this_color=get_color(color[i],1,i==place_x*41+place_y,1);
+        string this_color=get_color(color[i],1,i==place_y*41+place_x,1);
         if(this_color!=last_color)final_out<<this_color,last_color=this_color;
         final_out<<out[i];
     }
@@ -584,7 +571,270 @@ void print(){
     cout<<final_out.str();
     cout.flush();
 }
+void init_game(){
+    enable_ansi();
+    hide_cursor();
+    SetConsoleCtrlHandler(auto_close,1);
+    system("chcp 65001 > nul");
+    system("mode con cols=40 lines=27");
+    for(auto i:zh_to_color)color_to_zh[i.second]=i.first;
+    cout<<"欢迎来到Mycraft\n";
+    cout<<"选择：\n";
+    cout<<"1.创建游戏\n";
+    cout<<"2.读取存档\n";
+    int choose;
+    choose=_getch()-'0';
+    while(choose!=1&&choose!=2){
+        clear();
+        cout<<"请按1或2";
+        sleep_ms(1000);
+        clear();
+        cout<<"欢迎来到Mycraft\n";
+        cout<<"选择：\n";
+        cout<<"1.创建游戏\n";
+        cout<<"2.读取存档\n";
+        choose=_getch()-'0';
+    }
+    if(choose==1){
+        show_cursor();
+        cout<<"请输入世界名称：";
+        getline(cin,name);
+        cout<<"输入种子(留空以随机生成种子):";
+        getline(cin,seed);
+        if(seed==""){
+            srand(time(0));
+            string chars={"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"};
+            seed.resize(rand()%10+10);
+            for(auto &i:seed)i=chars[rand()%chars.size()];
+            hashed_seed=hash_str(seed);
+            srand(hashed_seed);
+        }else{
+            hashed_seed=hash_str(seed);
+            srand(hashed_seed);
+        }
+        hide_cursor();
+        clear();
+        cout<<R"(请输入游戏模式：
+1.生存/创造模式
+2.极限模式
+)";
+        mode=_getch()-'0';
+        while(mode!=1&&mode!=2){
+            clear();
+            cout<<"请按1或2\n";
+            sleep_ms(1000);
+            clear();
+            cout<<R"(请输入游戏模式：
+1.生存/创造模式
+2.极限模式
+            )";
+            mode=_getch()-'0';
+        }
+        randd();
+        save(name);
+    }else if(choose==2){
+        show_cursor();
+        cout<<"请输入世界名称：";
+        getline(cin,name);
+        hide_cursor();
+        if(load(name)){
+            clear();
+            cout<<"文件不存在或已被占用";
+            sleep_ms(1000);
+            exit(0);
+        }
+    }
+}
+void settings(){
+    while(_kbhit())_getch();
+    while(1){
+        clear();
+        cout<<"设置:\n";
+        cout<<"1.帧率设置\n";
+        cout<<"2.材质包加载\n";
+        cout<<"3.查看材质包制作方式\n";
+        cout<<"4.当前材质包\n";
+        cout<<"5.按键设置\n";
+        cout<<"6.退出\n";
+        char choose=_getch()-'0';
+        if(choose==1){
+            clear();
+            show_cursor();
+            while(_kbhit())_getch();
+            cout<<"请输入最大帧率:";
+            int new_fps;
+            cin>>new_fps;
+            hide_cursor();
+            if(cin.fail()){
+                clear();
+                cout<<"输入无效！\n";
+                sleep_ms(1000);
+            }else if(new_fps>1000||new_fps<=0){
+                clear();
+                cout<<"帧率在1~1000之间(包括)\n";
+                sleep_ms(1000);
+            }else target_fps=new_fps;
+            cin.clear();
+            cin.ignore(INT_MAX,'\n');
+        }else if(choose==2){
+            while(_kbhit())_getch();
+            clear();
+            show_cursor();
+            cout<<"输入材质包路径：";
+            string path;
+            getline(cin,path);
+            hide_cursor();
+            ifstream fin(path);
+            if(fin){
+                string in;
+                int cnt=0;
+                bool wrong=0;
+                auto has_wrong=[&wrong](){clear();cout<<"材质包格式错误";sleep_ms(1000);clear();wrong=1;};
+                while(fin>>in)cnt++;
+                if(cnt==10+block_type_count*2){
+                    fin.clear();
+                    fin.seekg(0);
+                    getline(fin,block_texture);
+                    if(block_texture.size()!=block_type_count){
+                        has_wrong();
+                        continue;
+                    }
+                    string in_color;
+                    for(int i=0;i<=1;i++){
+                        for(int j=0;j<block_type_count;j++){
+                            fin>>in_color;
+                            if(!zh_to_color.count(in_color)){
+                                has_wrong();
+                                break;
+                            }
+                            block_color[j][i]=zh_to_color[in_color];
+                        }
+                        if(wrong)break;
+                    }
+                    if(wrong)continue;
+                    string new_mob_name_str;
+                    getline(fin,new_mob_name_str);
+                    getline(fin,new_mob_name_str);
+                    if(new_mob_name_str.size()){
+                        mob_name_str=new_mob_name_str;
+                        for(int i=0;i<mobs.size();i++)mobs[i].name=mob_name_str[rand()%mob_name_str.size()];
+                    }
+                    else{
+                        has_wrong();
+                        continue;
+                    }
+                    fin>>boss_name;
+                    if(boss_idx!=-1)mobs[boss_idx].name=boss_name;
+                    for(int i=0;i<2;i++){
+                        fin>>in_color;
+                        if(!zh_to_color.count(in_color)){
+                            has_wrong();
+                            break;
+                        }
+                        mob_color[i]=zh_to_color[in_color];
+                    }
+                    if(wrong)continue;
+                    fin>>bullet_texture>>in_color;
+                    if(!zh_to_color.count(in_color))has_wrong();
+                    if(wrong)continue;
+                    bullet_color=zh_to_color[in_color];
+                    fin>>reward_texture;
+                    for(int i=0;i<2;i++){
+                        fin>>in_color;
+                        if(!zh_to_color.count(in_color)){
+                            has_wrong();
+                            break;
+                        }
+                        reward_color[i]=zh_to_color[in_color];
+                    }
+                    if(wrong)continue;
+                    fin.close();
+                }else{
+                    clear();
+                    cout<<"材质包格式错误";
+                    sleep_ms(1000);
+                    clear();
+                    continue;
+                }
+            }else{
+                clear();
+                cout<<"材质包文件不存在或被占用";
+                sleep_ms(1000);
+                clear();
+            }
+        }else if(choose==3){
+            clear();
+            cout<<"制作方式：\n";
+            cout<<"每个方块的贴图（"+to_string(block_type_count)+"个字符的字符串）\n";
+            cout<<"主世界方块的颜色"+to_string(block_type_count)+"个\n";
+            cout<<"地狱方块的颜色"+to_string(block_type_count)+"个\n";
+            cout<<"怪物贴图(可见字符组成的字符串)\n";
+            cout<<"boss贴图(可见字符)\n";
+            cout<<"正常怪物的颜色 能发射子弹的怪物的颜色\n";
+            cout<<"子弹的贴图 子弹的颜色\n";
+            cout<<"非正常金币的贴图\n";
+            cout<<"正常的给予金币的金币的颜色\n";
+            cout<<"隐藏的给予金币的金币的颜色\n";
+            cout<<"所有颜色：";
+            int cnt=0;
+            for(auto i:zh_to_color)cout<<(cnt?"、":"")<<i.first,cnt++;
+            int c=_getch();
+        }else if(choose==4){
+            clear();
+            cout<<block_texture<<'\n';
+            for(int i=0;i<block_type_count;i++)cout<<color_to_zh[block_color[i][0]]<<' ';
+            cout<<'\n';
+            for(int i=0;i<block_type_count;i++)cout<<color_to_zh[block_color[i][1]]<<' ';
+            cout<<'\n'<<mob_name_str<<'\n'<<boss_name<<'\n'<<color_to_zh[mob_color[0]]<<' '<<color_to_zh[mob_color[1]]<<'\n';
+            cout<<bullet_texture<<' '<<color_to_zh[bullet_color]<<'\n';
+            cout<<reward_texture<<'\n';
+            for(int i=0;i<2;i++)cout<<color_to_zh[reward_color[i]]<<'\n';
+            int c=_getch();
+        }else if(choose==5){
+            while(_kbhit())_getch();
+            show_cursor();
+            clear();
+            cout<<R"(固定键位：
+esc:从游戏退出到设置界面
+方向键:更改放方块的位置
+数字键:放置物品
+小键盘数字键:切换物品栏预览
+)";
+            string out="非固定键位：\n";
+            for(auto i:key_pos)out+=i.first+":'"+string(1,i.second)+"'\n";
+            cout<<out;
+            cout<<"输入新键位(按上面顺序输入,必须为可见字符(包括空格):";
+            string in;
+            bool wrong=0;
+            auto has_wrong=[&wrong](string str){clear();cout<<str;sleep_ms(1000);clear();wrong=1;};
+            getline(cin,in);
+            hide_cursor();
+            for(auto&c:in)c=((c>='a'&&c<='z')?c-32:c);
+            for(auto c:in){
+                if(c>='0'&&c<='9'){
+                    has_wrong("不能和固定键位冲突");
+                    break;
+                }
+            }
+            set<char> s;
+            for(auto c:in)s.insert(c);
+            if(s.size()!=in.size())has_wrong("不能包含重复按键");
+            if(in.size()!=key_pos.size())has_wrong("长度不正确");
+            if(wrong)continue;
+            int cnt=0;
+            for(auto&i:key_pos)i.second=in[cnt],cnt++;
+            hide_cursor();
+        }else if(choose==6){
+            break;
+        }else{
+            clear();
+            cout<<"请按1、2、3、4、5或6\n";
+            sleep_ms(1000);
+        }
+    }
+}
 bool move(){
+    if(gr["cm"])hit=0,hp=100;
     total_fps++;
     if(!(total_fps%100))save(name);
     for(int i=99;i>=0;i--){
@@ -613,89 +863,73 @@ bool move(){
         a.hp=1000;
         a.x=x;
         a.y=y;
-        a.name='+';
+        a.name=boss_name;
         a.can_shoot=1;
         a.max_hp=1000;
+        a.world=1;
         boss_idx=mobs.size();
         mobs.push_back(a);
         can_summon_boss=1;
     }
-    if(boss_idx<mobs.size()&&mobs[boss_idx].name=='+'&&mobs[boss_idx].hp<=0&&!win){
-        dt(mobs[boss_idx].x,mobs[boss_idx].y,world)=7;
+    if(boss_idx!=-1&&mobs[boss_idx].hp<=0&&!win){
+        dt(mobs[boss_idx].x,mobs[boss_idx].y,mobs[boss_idx].world)=7;
         mobs.erase(mobs.begin()+boss_idx);
         boss_idx=-1;
         clear();
-        cout<<"          你通关了 Mycraft\n       版本:1.6.3   作者:123";
+        cout<<"          你通关了 Mycraft\n       版本:1.6.5   作者:123";
         win=1;
         sleep_ms(4000);
     }
     for(int i=0;i<mobs.size();i++){
-        if(facing==0&&mobs[i].x==x-1&&mobs[i].y==y&&is_fighting&&!gr["nm"]&&mobs[i].hp>0)mobs[i].hp-=attack_power;
-        if(facing==1&&mobs[i].x==x+1&&mobs[i].y==y&&is_fighting&&!gr["nm"]&&mobs[i].hp>0)mobs[i].hp-=attack_power;
-        if(mobs[i].hp<=0&&dt(mobs[i].x,mobs[i].y,world)==5&&!gr["nm"])mobs[i].y=rand()%sch,mobs[i].x=rand()%scw;
-        if(!(total_fps%5)&&!gr["nm"]&&mobs[i].hp<mobs[i].max_hp)mobs[i].hp++;
-        if(mobs[i].x==mobs[i].target_x&&mobs[i].y==mobs[i].target_y&&!gr["nm"]){
-            int xx=mobs[i].x+((rand()%21)-10),yy=mobs[i].y+((rand()%21)-10);
-            int ma=1000;
-            while(dt(xx,yy,world)==6&&ma--)xx=mobs[i].x+((rand()%21)-10),yy=mobs[i].y+((rand()%21)-10);
-            mobs[i].target_x=xx;
-            mobs[i].target_y=yy;
+        if(mobs[i].world==world){
+            if(facing==0&&mobs[i].x==x-1&&mobs[i].y==y&&is_fighting&&!gr["nm"]&&mobs[i].hp>0)mobs[i].hp-=attack_power;
+            if(facing==1&&mobs[i].x==x+1&&mobs[i].y==y&&is_fighting&&!gr["nm"]&&mobs[i].hp>0)mobs[i].hp-=attack_power;
+            if(mobs[i].hp<=0&&!gr["nm"]&&i!=boss_idx)mobs[i].y=rand()%sch,mobs[i].x=rand()%scw,mobs[i].hp=mobs[i].max_hp;
+            if(!(total_fps%5)&&!gr["nm"]&&mobs[i].hp<mobs[i].max_hp)mobs[i].hp++;
+            if(mobs[i].x==mobs[i].target_x&&mobs[i].y==mobs[i].target_y&&!gr["nm"]){
+                int xx=mobs[i].x+((rand()%21)-10),yy=mobs[i].y+((rand()%21)-10);
+                int ma=1000;
+                while((dt(xx,yy,mobs[i].world)==6||dt(xx,yy,mobs[i].world)==9)&&ma--)xx=mobs[i].x+((rand()%21)-10),yy=mobs[i].y+((rand()%21)-10);
+                mobs[i].target_x=xx;
+                mobs[i].target_y=yy;
+            }
+            if(((abs(x-mobs[i].x)<=10&&abs(y-mobs[i].y)<=10)||i==boss_idx)&&!gr["cm"]&&dt(x,y,mobs[i].world)!=6&&dt(x,y,mobs[i].world)!=9)mobs[i].target_x=x,mobs[i].target_y=y;
+            if(mobs[i].target_x<=0)mobs[i].target_x=0;
+            if(mobs[i].target_x>=scw)mobs[i].target_x=scw-1;
+            if(mobs[i].target_y<=0)mobs[i].target_y=0;
+            if(mobs[i].target_y>=sch)mobs[i].target_y=sch-1;
+            if(total_fps%2&&!gr["nm"]&&mobs[i].hp>0){
+                if(mobs[i].x<mobs[i].target_x&&abs(mobs[i].x-mobs[i].target_x)>=abs(mobs[i].y-mobs[i].target_y))mobs[i].x++;
+                if(mobs[i].x>mobs[i].target_x&&abs(mobs[i].x-mobs[i].target_x)>=abs(mobs[i].y-mobs[i].target_y))mobs[i].x--;
+                if(mobs[i].y<mobs[i].target_y&&abs(mobs[i].y-mobs[i].target_y)>=abs(mobs[i].x-mobs[i].target_x))mobs[i].y++;
+                if(mobs[i].y>mobs[i].target_y&&abs(mobs[i].y-mobs[i].target_y)>=abs(mobs[i].x-mobs[i].target_x))mobs[i].y--;
+            }
+            if(dt(mobs[i].x,mobs[i].y,mobs[i].world)==5&&!gr["nm"]&&mobs[i].hp>0)mobs[i].hp-=10;
+            if(dt(mobs[i].x,mobs[i].y,mobs[i].world)==4&&mobs[i].world==1&&!gr["nm"]&&mobs[i].hp>0)mobs[i].hp-=5;
+            if(dt(mobs[i].x,mobs[i].y,mobs[i].world)==4&&mobs[i].world==0&&!gr["nm"]&&mobs[i].hp>0)mobs[i].hp-=2;
+            if(mobs[i].can_shoot&&!(total_fps%10)&&rand()%2&&!gr["nm"]&&mobs[i].hp>0)bullets.push_back({mobs[i].x,mobs[i].y,mobs[i].x<x,string(1,mobs[i].name),mobs[i].world});
         }
-        if(((abs(x-mobs[i].x)<=10&&abs(y-mobs[i].y)<=10)||mobs[i].name=='+')&&!gr["cm"]&&dt(x,y,world)!=6&&dt(x,y,world)!=9)mobs[i].target_x=x,mobs[i].target_y=y;
-        if(mobs[i].target_x<=0)mobs[i].target_x=0;
-        if(mobs[i].target_x>scw)mobs[i].target_x=scw-1;
-        if(mobs[i].target_y<=0)mobs[i].target_y=0;
-        if(mobs[i].target_y>sch)mobs[i].target_y=sch-1;
-        if(total_fps%2&&!gr["nm"]&&mobs[i].hp>0){
-            if(mobs[i].x<mobs[i].target_x&&abs(mobs[i].x-mobs[i].target_x)>=abs(mobs[i].y-mobs[i].target_y))mobs[i].x++;
-            if(mobs[i].x>mobs[i].target_x&&abs(mobs[i].x-mobs[i].target_x)>=abs(mobs[i].y-mobs[i].target_y))mobs[i].x--;
-            if(mobs[i].y<mobs[i].target_y&&abs(mobs[i].y-mobs[i].target_y)>=abs(mobs[i].x-mobs[i].target_x))mobs[i].y++;
-            if(mobs[i].y>mobs[i].target_y&&abs(mobs[i].y-mobs[i].target_y)>=abs(mobs[i].x-mobs[i].target_x))mobs[i].y--;
-        }
-        if(dt(mobs[i].x,mobs[i].y,world)==5&&!gr["nm"]&&mobs[i].hp>0)mobs[i].hp-=10;
-        if(dt(mobs[i].x,mobs[i].y,world)==4&&world==1&&!gr["nm"]&&mobs[i].hp>0)mobs[i].hp-=5;
-        if(dt(mobs[i].x,mobs[i].y,world)==4&&world==0&&!gr["nm"]&&mobs[i].hp>0)mobs[i].hp-=2;
-        if(mobs[i].can_shoot&&!(total_fps%10)&&rand()%2&&!gr["nm"]&&mobs[i].hp>0)bullets.push_back({mobs[i].x,mobs[i].y,mobs[i].x<x,string(1,mobs[i].name)});
     }
     if(total_fps%2)hp++;
     if(hp>=100)hp=100;
     if(!(total_fps%4)&&dt(x,y,world)==4&&world==0)hp-=3,die="你在水里窒息而亡";
     if(dt(x,y,world)==4&&world==1)hp-=5,die="你试图在岩浆里游泳";
     if(dt(x,y,world)==5)hp-=10,die="你被地刺扎死了";
-    for(int i=0;i<mobs.size();i++)if(x==mobs[i].x&&y==mobs[i].y&&!gr["cm"]&&!gr["nm"]&&!squat&&mobs[i].hp>0)hp-=5,die="你被"+string(1,mobs[i].name)+"杀死了";
+    for(int i=0;i<mobs.size();i++)if(x==mobs[i].x&&y==mobs[i].y&&!gr["cm"]&&!gr["nm"]&&mobs[i].hp>0&&mobs[i].world==world)hp-=(5>>squat),die="你被"+string(1,mobs[i].name)+"杀死了";
     if(y>120)hp-=5,die="你掉入了虚空";
-    if(hp<=0&&mode==1){
-        clear();
-        slowly_type(die,100);
-        sleep_ms(1000);
-        x=rand()%scw;
-        y=rand()%sch;
-        while(dt(x,y,world)==1||dt(x,y,world)==5||dt(x,y+1,world)!=1){
-            x=rand()%scw;
-            y=rand()%sch;
-        }
-        return 1;
-    }
-    if(hp<=0&&mode==2){
-        remove((name+".mycraftsave").c_str());
-        clear();
-        slowly_type(die+"\n很遗憾，你丢失了极限世界",100);
-        exit(0);
-    }
-    for(int i=0;i<bullets.size();i++){
-        if(bullets[i].facing!=-1&&bullets[i].x>-30&&bullets[i].x<230)bullets[i].x+=(bullets[i].facing?1:-1);
-    }
+    for(int i=0;i<bullets.size();i++)if(bullets[i].x>-30&&bullets[i].x<230&&bullets[i].world==world)bullets[i].x+=(bullets[i].facing?1:-1);
     for(int i=0;i<bullets.size();i++){
         bool ok=0;
         for(int j=0;j<mobs.size();j++){
-            if(bullets[i].x==mobs[j].x&&bullets[i].y==mobs[j].y&&mobs[j].hp>0&&!gr["nm"]&&bullets[i].name=="player"){
+            if((bullets[i].x-(bullets[i].facing?1:-1)==mobs[j].x||bullets[i].x==mobs[j].x)&&bullets[i].y==mobs[j].y&&bullets[i].world==mobs[j].world&&mobs[j].world==world&&mobs[j].hp>0&&!gr["nm"]&&bullets[i].name=="player"){
                 bullets.erase(bullets.begin()+i);
                 mobs[j].hp-=(attack_power*3)>>1;
+                i--;
                 ok=1;
                 break;
             }
         }
-        if(!ok&&bullets[i].x==x&&bullets[i].y==y&&bullets[i].name!="player"){
+        if(!ok&&(bullets[i].x-(bullets[i].facing?1:-1)==x||bullets[i].x==x)&&bullets[i].y==y&&bullets[i].world==world&&bullets[i].name!="player"){
             die="你被"+bullets[i].name+"用子弹射杀了"; 
             bullets.erase(bullets.begin()+i);
             i--;
@@ -719,28 +953,48 @@ bool move(){
         else mobs[i].hit=0;
         mobs[i].last_hp=mobs[i].hp;
     }
+    if(hp<=0&&mode==1){
+        clear();
+        slowly_type(die,100);
+        sleep_ms(1000);
+        if(hasone()){
+            do{
+                x=rand()%scw;
+                y=rand()%sch;
+            }while(dt(x,y,world)||dt(x,y+1,world)!=1);
+        }
+        return 1;
+    }
+    if(hp<=0&&mode==2){
+        remove((name+".mycraftsave").c_str());
+        clear();
+        slowly_type(die+"\n很遗憾，你丢失了极限世界",100);
+        exit(0);
+    }
+    if(gr["cm"])hit=0,hp=100;
     return 0;
 }
-bool load(){
-    if(kd(VK_RIGHT))place_y++;
-    if(kd(VK_LEFT))place_y--;
-    if(kd(VK_DOWN))place_x++;
-    if(kd(VK_UP))place_x--;
+bool read(){
+    check_coin();
+    if(kd(VK_RIGHT))place_x++;
+    if(kd(VK_LEFT))place_x--;
+    if(kd(VK_DOWN))place_y++;
+    if(kd(VK_UP))place_y--;
 
-    if(place_x<0)place_x=0;
     if(place_y<0)place_y=0;
-    if(place_x>19)place_x=19;
-    if(place_y>39)place_y=39;
+    if(place_x<0)place_x=0;
+    if(place_y>19)place_y=19;
+    if(place_x>39)place_x=39;
 
     for(int i=0;i<block_type_count;i++)if(kd(0x60+i))slot=i;
 
-    for(int i=0;i<block_type_count;i++)if(kd(to_string(i)[0])&&gr["cm"]&&x>=0&&y>=0&&x<scw&&y<sch)dt(x-20+place_y,y-10+place_x,world)=i;
+    for(int i=0;i<block_type_count;i++)if(kd(to_string(i)[0])&&gr["cm"]&&x-20+place_x>=0&&y-10+place_y>=0&&x-20+place_x<scw&&y-10+place_y<sch)dt(x-20+place_x,y-10+place_y,world)=i;
 
-    if(kd('0')&&!gr["cm"]&&block[0]&&dt(x-20+place_y,y-10+place_x,world)!=0&&x-20+place_y>=0&&y-10+place_x>=0&&x-20+place_y<scw&&y-10+place_x<sch)block[dt(x-20+place_y,y-10+place_x,world)]++,dt(x-20+place_y,y-10+place_x,world)=0,block[0]--;
-    for(int i=1;i<block_type_count;i++)if(kd(to_string(i)[0])&&!gr["cm"]&&block[i]&&dt(x-20+place_y,y-10+place_x,world)!=i&&x-20+place_y>=0&&y-10+place_x>=0&&x-20+place_y<scw&&y-10+place_x<sch)dt(x-20+place_y,y-10+place_x,world)=i,block[i]--;
+    if(kd('0')&&!gr["cm"]&&block[0]&&dt(x-20+place_x,y-10+place_y,world)!=0&&x-20+place_x>=0&&y-10+place_y>=0&&x-20+place_x<scw&&y-10+place_y<sch)block[dt(x-20+place_x,y-10+place_y,world)]++,dt(x-20+place_x,y-10+place_y,world)=0,block[0]--;
+    for(int i=1;i<block_type_count;i++)if(kd(to_string(i)[0])&&!gr["cm"]&&block[i]&&dt(x-20+place_x,y-10+place_y,world)!=i&&x-20+place_x>=0&&y-10+place_y>=0&&x-20+place_x<scw&&y-10+place_y<sch)dt(x-20+place_x,y-10+place_y,world)=i,block[i]--;
 
     if(kd(key_pos["jump"])&&(dt(x,y+1,world)==1||dt(x,y,world)==4||dt(x,y,world)==3)&&!gr["cm"]&&dt(x,y-1,world)!=4&&dt(x,y-1,world)!=3)is_jump=1,jump_height=y-7;
-    if(kd(key_pos["jump"])&&gr["cm"])y-=1;
+    if(kd(key_pos["jump"])&&gr["cm"])y--;
 
     if(dt(x,y+1,world)!=1&&!is_jump&&!gr["cm"]&&y<sch)y++;
     if(squat&&dt(x,y+1,world)!=1&&!is_jump&&!gr["cm"]&&y<sch)y++;
@@ -767,8 +1021,7 @@ bool load(){
     if(kd(key_pos["speed_up"])&&kd(key_pos["right"])&&dt(x+1,y,world)!=1&&!gr["cm"])x++,facing=1;
     if(kd(key_pos["speed_up"])&&kd(key_pos["right"])&&gr["cm"])x++,facing=1;
 
-    if(kd(key_pos["fight"]))is_fighting=1;
-    if(!kd(key_pos["fight"]))is_fighting=0;
+    is_fighting=kd(key_pos["fight"]);
 
     if(kd(key_pos["squat"])&&!gr["cm"])squat=1;
     if(!kd(key_pos["squat"])&&!gr["cm"])squat=0;
@@ -779,7 +1032,7 @@ bool load(){
 
     if(kd(VK_ESCAPE))return 1;
 
-    if(y<jump_height)is_jump=0;
+    if(jump_height>y)is_jump=0;
     
     if(is_jump==1){
         if(dt(x,y-1,world)==1)is_jump=0;
@@ -839,7 +1092,7 @@ bool load(){
         while(kd(key_pos["shop_buy"]))sleep_ms(10);
         while(_kbhit())_getch();
         int attack_pri=(1<<attack_shop_buy_count)*100;
-        int attack_add_power=attack_shop_buy_count*10+10;
+        int attack_add_power=attack_shop_buy_count*5+5;
         int defense_pri=(1<<defense_shop_buy_count)*100;
         int defense_add_power=50/pow(2,defense_shop_buy_count+1);
         cout<<"选择:\n";
@@ -857,11 +1110,15 @@ bool load(){
             cout<<"1.需要消耗"<<attack_pri<<"金币才能升到下一级(增加"<<attack_add_power<<"点攻击力)\n";
             cout<<"2.需要消耗"<<defense_pri<<"金币才能升到下一级(增加"<<defense_add_power<<"%伤害吸收)\n";
             cout<<"3.子弹3金币一颗\n";
-            cout<<"3.退出";
+            cout<<"4.退出";
             in=_getch();
         }
         if(in=='1'){
-            if(score>=attack_pri){
+            if(attack_shop_buy_count>=6){
+                clear();
+                cout<<"你已经够强了,去征服世界吧";
+                sleep_ms(1000);
+            }else if(score>=attack_pri){
                 score-=attack_pri;
                 attack_shop_buy_count++;
                 attack_power+=attack_add_power;
@@ -872,7 +1129,11 @@ bool load(){
             }
         }
         if(in=='2'){
-            if(score>=defense_pri){
+            if(defense_shop_buy_count>=5){
+                clear();
+                cout<<"你已经够强了,去征服世界吧";
+                sleep_ms(1000);
+            }else if(score>=defense_pri){
                 score-=defense_pri;
                 defense_shop_buy_count++;
                 defense_power-=defense_add_power;
@@ -887,7 +1148,7 @@ bool load(){
             cout<<"请输入数量:";
             int x;
             cin>>x;
-            if(cin.fail()){
+            if(cin.fail()||x<0){
                 cin.clear();
                 cin.ignore(INT_MAX,'\n');
                 clear();
@@ -904,17 +1165,18 @@ bool load(){
         }
     }
 
-    if(kd(key_pos["cmd"])&&mode==2){
-        clear();
-        cout<<"极限世界不能使用指令\n";
-        sleep_ms(2000);
-    }
-    
     if(kd(key_pos["shoot"])){
         if(bullet_count||gr["cm"]){
             if(!gr["cm"])bullet_count--;
-            bullets.push_back({x,y,facing,"player"});
+            bullets.push_back({x,y,facing,"player",world});
         }
+    }
+    
+    if(kd(key_pos["cmd"])&&mode==2){
+        clear();
+        while(kd(key_pos["cmd"]))sleep_ms(10);
+        cout<<"极限世界不能使用指令\n";
+        sleep_ms(2000);
     }
     
     if(kd(key_pos["cmd"])&&mode==1){
@@ -975,14 +1237,19 @@ bool load(){
                     clear();
                     cout<<"输入无效！\n";
                     sleep_ms(1000);
-                }else if(a>=0&&a<block_type_count&&b>0){
+                }else if(a>=0&&a<block_type_count&&block[a]+b>=0&&block[a]+b<1000000000){
                     block[a]+=b;
+                }else{
+                    clear();
+                    cout<<"方块编号或给予数量越界";
+                    sleep_ms(1000);
+                    clear();
                 }
             }
-            if(a=="write"){
+            if(a=="save"){
                 cout<<"请输入存档名字：";
-                string a;
-                cin>>a;
+                string new_name;
+                cin>>new_name;
                 if(cin.fail()){
                     cin.clear();
                     cin.ignore(INT_MAX,'\n');
@@ -990,15 +1257,16 @@ bool load(){
                     cout<<"输入无效！\n";
                     sleep_ms(1000);
                 }else{
-                    save(a);
-                    cout<<"存档成功！\n";
+                    if(!save(new_name))cout<<"存档成功！\n";
+                    else cout<<"无法创建文件或文件已被占用";
                     sleep_ms(1000);
                 }
             }
             if(a=="load"){
+                save(name);
                 cout<<"请输入存档名字：";
-                string a;
-                cin>>a;
+                string new_name;
+                cin>>new_name;
                 if(cin.fail()){
                     cin.clear();
                     cin.ignore(INT_MAX,'\n');
@@ -1006,8 +1274,8 @@ bool load(){
                     cout<<"输入无效！\n";
                     sleep_ms(1000);
                 }else{
-                    load(a);
-                    cout<<"读档成功！\n";
+                    if(!load(new_name))cout<<"读档成功！\n",name=new_name;
+                    else cout<<"文件不存在或已被占用";
                     sleep_ms(1000);
                 }
             }
@@ -1052,13 +1320,13 @@ bool load(){
                 cout<<R"(
 gr      游戏规则 值         修改游戏规则
 grl                     列出所有游戏规则
-full    方块类型      把玩家所在世界填充
+fill    方块类型      把玩家所在世界填充
 give    方块类型 数量       给予玩家方块
-write   存档名                      存档
+save    存档名                      存档
 load    存档名                      读档
 ovw                     传送玩家至主世界
 nw                        传送玩家至下界
-kill                在所有模式下杀死玩家
+kill                在生存模式下杀死玩家
 seed                            查看种子
 tp      x坐标   y坐标 传送至:x坐标,y坐标
 help                            查看帮助 
@@ -1072,60 +1340,7 @@ help                            查看帮助
     return 0;
 }
 int main(){
-    enable_ansi();
-    hide_cursor();
-    system("chcp 65001 > nul");
-    system("mode con cols=40 lines=27");
-    for(auto i:zh_to_color)color_to_zh[i.second]=i.first;
-    cout<<"欢迎来到Mycraft\n";
-    cout<<"选择：\n";
-    cout<<"1.创建游戏\n";
-    cout<<"2.读取存档\n";
-    int a1;
-    a1=_getch()-'0';
-    if(a1==1){
-        show_cursor();
-        cout<<"请输入世界名称：";
-        getline(cin,name);
-        cout<<"输入种子(留空以随机生成种子):";
-        getline(cin,seed);
-        if(seed==""){
-            srand(time(0));
-            string chars={"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"};
-            seed.resize(rand()%10+10);
-            for(auto &i:seed)i=chars[rand()%chars.size()];
-            hashed_seed=hash_str(seed);
-            srand(hashed_seed);
-        }else{
-            hashed_seed=hash_str(seed);
-            srand(hashed_seed);
-        }
-        hide_cursor();
-        clear();
-        cout<<R"(请输入游戏模式：
-1.生存/创造模式
-2.极限模式
-)";
-        mode=_getch()-'0';
-        while(mode!=1&&mode!=2){
-            clear();
-            cout<<"请按1或2\n";
-            sleep_ms(1000);
-            clear();
-            cout<<R"(请输入游戏模式：
-1.生存/创造模式
-2.极限模式
-            )";
-            mode=_getch()-'0';
-        }
-        randd();
-    }else if(a1==2){
-        show_cursor();
-        cout<<"请输入世界名称：";
-        getline(cin,name);
-        hide_cursor();
-        if(load(name)==1)return 0;
-    }
+    init_game();
     while(1){
         start:
         clear();
@@ -1133,16 +1348,16 @@ int main(){
         cout<<"1.开始游戏\n";
         cout<<"2.设置\n";
         cout<<"3.退出\n";
-        int a=_getch()-'0';
-        if(a==1){
+        int choose=_getch()-'0';
+        if(choose==1){
             while(1){
                 while(1){
                     long long s=get_ms();
                     print();
-                    check_coin();
                     get_color(15);
-                    if(load()){
+                    if(read()){
                         while(_kbhit())_getch();
+                        save(name);
                         goto start;
                     }
                     if(move())break;
@@ -1150,142 +1365,12 @@ int main(){
                     if(get_ms()-s==0)fps=target_fps;
                     else fps=1000/(get_ms()-s);
                 }
-                is_jump=0,hp=100,total_fps=0;
+                is_jump=0,hp=100;
+                save(name);
             }
-        }else if(a==2){
-            while(_kbhit())_getch();
-            while(1){
-                clear();
-                cout<<"设置:\n";
-                cout<<"1.帧率设置\n";
-                cout<<"2.材质包加载\n";
-                cout<<"3.查看材质包制作方式\n";
-                cout<<"4.原版材质包（示例，能正常加载）\n";
-                cout<<"5.按键设置\n";
-                cout<<"6.退出\n";
-                char a=_getch()-'0';
-                if(a==1){
-                    clear();
-                    show_cursor();
-                    while(_kbhit())_getch();
-                    cout<<"请输入最大帧率:";
-                    cin>>target_fps;
-                    if(target_fps>1000||target_fps<=0){
-                        clear();
-                        cout<<"帧率在1~1000之间(包括)\n";
-                        sleep_ms(1000);
-                    }
-                    if(cin.fail()||target_fps<=0){
-                        cin.clear();
-                        cin.ignore(INT_MAX,'\n');
-                        clear();
-                        cout<<"输入无效！\n";
-                        sleep_ms(1000);
-                    }
-                    hide_cursor();
-                }else if(a==2){
-                    while(_kbhit())_getch();
-                    clear();
-                    show_cursor();
-                    cout<<"输入材质包路径：";
-                    string path;
-                    getline(cin,path);
-                    hide_cursor();
-                    ifstream fin(path);
-                    if(fin){
-                        string in;
-                        int cnt=0;
-                        while(fin>>in)cnt++;
-                        if(cnt==9+block_type_count*2){
-                            fin.clear();
-                            fin.seekg(0);
-                            getline(fin,block_texture);
-                            string in_color;
-                            for(int i=0;i<block_type_count;i++){
-                                fin>>in_color;
-                                block_color[i][0]=zh_to_color[in_color];
-                            }
-                            for(int i=0;i<block_type_count;i++){
-                                fin>>in_color;
-                                block_color[i][1]=zh_to_color[in_color];
-                            }
-                            getline(fin,mob_name_str);
-                            getline(fin,mob_name_str);
-                            if(mob_name_str.size())for(int i=0;i<mobs.size();i++)mobs[i].name=mob_name_str[rand()%mob_name_str.size()];
-                            else{
-                                clear();
-                                cout<<"材质包格式错误";
-                                continue;
-                            }
-                            for(int i=0;i<2;i++){
-                                fin>>in_color;
-                                mob_color[i]=zh_to_color[in_color];
-                            }
-                            fin>>bullet_texture>>in_color;
-                            bullet_color=zh_to_color[in_color];
-                            fin>>reward_texture;
-                            for(int i=0;i<2;i++){
-                                fin>>in_color;
-                                reward_color[i]=zh_to_color[in_color];
-                            }
-                        }
-                    }
-                    fin.close();
-                }else if(a==3){
-                    clear();
-                    cout<<"制作方式：\n";
-                    cout<<"每个方块的贴图（"+to_string(block_type_count)+"个字符的字符串）\n";
-                    cout<<"主世界方块的颜色"+to_string(block_type_count)+"个\n";
-                    cout<<"地狱方块的颜色"+to_string(block_type_count)+"个\n";
-                    cout<<"怪物贴图（任意字符串）\n";
-                    cout<<"正常怪物的颜色 能发射子弹的怪物的颜色\n";
-                    cout<<"子弹的贴图 子弹的颜色\n";
-                    cout<<"非正常金币的贴图\n";
-                    cout<<"正常的给予金币的金币的颜色\n";
-                    cout<<"隐藏的给予金币的金币的颜色\n";
-                    cout<<"所有颜色：深蓝、深绿、深青、深红、深粉、黄、深白、灰、蓝、绿、青、红、粉、黄、白";
-                    int c=_getch();
-                }else if(a==4){
-                    clear();
-                    cout<<block_texture<<'\n';
-                    for(int i=0;i<block_type_count;i++)cout<<color_to_zh[block_color[i][0]]<<' ';
-                    cout<<'\n';
-                    for(int i=0;i<block_type_count;i++)cout<<color_to_zh[block_color[i][1]]<<' ';
-                    cout<<'\n'<<mob_name_str<<'\n'<<color_to_zh[mob_color[0]]<<' '<<color_to_zh[mob_color[1]]<<'\n';
-                    cout<<bullet_texture<<' '<<color_to_zh[bullet_color]<<'\n';
-                    cout<<reward_texture<<'\n';
-                    for(int i=0;i<2;i++)cout<<color_to_zh[reward_color[i]]<<'\n';
-                    int c=_getch();
-                }else if(a==5){
-                    while(_kbhit())_getch();
-                    show_cursor();
-                    clear();
-                    cout<<R"(固定键位：
-esc:从游戏退出到设置界面
-方向键:更改放方块的位置
-数字键:放置物品
-小键盘数字键:切换物品栏预览
-)";
-                    string out="非固定键位：\n";
-                    for(auto i:key_pos)out+=i.first+":'"+string(1,i.second)+"'\n";
-                    cout<<out;
-                    cout<<"输入新键位(按上面顺序输入,大写,必须为可见字符(包括空格),不能和固定键位重合):";
-                    string in;
-                    getline(cin,in);
-                    if(in.size()==key_pos.size()){
-                        int cnt=0;
-                        for(auto&i:key_pos)i.second=in[cnt],cnt++;
-                    }
-                    hide_cursor();
-                }else if(a==6){
-                    break;
-                }else{
-                    clear();
-                    cout<<"请按1、2、3、4、5或6\n";
-                    sleep_ms(1000);
-                }
-            }
-        }else if(a==3){
+        }else if(choose==2){
+            settings();
+        }else if(choose==3){
             return 0;
         }else{
             clear();
